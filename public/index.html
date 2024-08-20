@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script src="https://cdn.tailwindcss.com"></script>  
+  <title>Flowwe JS App</title>
+  <script>
+    tailwind.config = {
+      darkMode: 'class'
+    };  
+    window.FlowweJSConfig = {
+      baseUrl: '/',
+      componentFetchUrl: '/components',
+      apiUrl: '',  //YOUR apiURL
+      routes: [
+		{ path: '/', component: 'article-list-page' },
+		{ path: '/articles/:id', component: 'article-page' },
+		{ path: '/authors', component: 'authors-list-page' },
+		{ path: '/author/:id', component: 'author-page' },
+        { path: '/404', component: 'notfound-page' }
+      ],
+    preloadComponents: ['flowwejs-nav'],
+	performanceMonitoring: true,
+	errorDisplaying: true,
+	defaultAnimationSpeed: 500,
+	useViewTransition: true,
+	useIntersectionObserver: true,
+	intersectionThreshold: 0.1,
+	intersectionRootMargin: '0px',
+	useServiceWorker: true,
+	httpCacheStrategy: 'cache-first'	  
+    };
+  </script>
+</head>
+<body class="transition-all bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-50 flex flex-col h-screen">
+<header class="fixed top-0 left-0 right-0 z-10 backdrop-filter backdrop-blur-lg bg-opacity-30 shadow-md">
+  <flowwejs-nav></flowwejs-nav>
+</header>
+<div class="flex flex-1 mt-14">
+	  <main class="flex-1 overflow-y-auto overflow-x-hidden z-0">
+		<div id="app" class="max-h-full"></div>
+	</main>
+</div>  
+  <flowwejs-footer></flowwejs-footer>
+  <script src="/components/templateService.js"></script> 
+</body>
+</html>
