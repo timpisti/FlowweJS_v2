@@ -2,6 +2,7 @@ import { ComponentLoader } from './core/ComponentLoader.js';
 import { Router } from './core/Router.js';
 import { PerformanceMonitor } from './core/PerformanceMonitor.js';
 import { ErrorBoundary } from './core/ErrorBoundary.js';
+import { Subject } from 'rxjs';
 
 class FlowweJS {
   constructor() {
@@ -22,7 +23,8 @@ class FlowweJS {
   }
 
   initFlowweRx() {
-    window.FlowweRx = {};
+	   const FlowweRX = new Subject();
+    window.FlowweRx = FlowweRX;
   }
 
   insertModulePreloads() {
@@ -61,5 +63,38 @@ if ('requestIdleCallback' in window) {
       console.error('Failed to initialize app:', error);
       // You might want to display a user-friendly error message here
     });
+  });
+}
+
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', async () => {
+    try {
+		  const registration = await navigator.serviceWorker.register('/service-worker.js').then(registration => {
+		  registration.addEventListener('updatefound', () => {
+			const installingWorker = registration.installing;
+			if (installingWorker) {
+			  installingWorker.onstatechange = function() {
+				switch (this.state) {
+				  case 'installed':
+					if (navigator.serviceWorker.controller) {
+					  console.log('New or updated content is available.');
+					} else {
+					  console.log('Content is now available offline!');
+					}
+					break;
+				  case 'redundant':
+					console.error('The installing service worker became redundant.');
+					break;
+				}
+			  };
+			}
+		  });
+		})
+		.catch(error => {
+		  console.error('Error during service worker registration:', error);
+		});
+	} catch (error) {
+      console.error('Upload Service Worker registration failed:', error);
+    }
   });
 }
