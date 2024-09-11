@@ -14,34 +14,42 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const cacheStrategy = event.request.headers.get('X-Cache-Strategy') || 'network-first';
   const cacheExpiration = parseInt(event.request.headers.get('X-Cache-Expiration')) || 5 * 60 * 1000;
-  const cacheIdentifier = event.request.headers.get('X-Cache-Identifier');
+  const cacheIdentifier = simpleHash(event.request.url);
 
   if (event.request.method !== 'GET') {
     return;
   }
 
+  console.log('Service Worker Fetch:', cacheIdentifier);
   event.respondWith(
     (async function() {
       const cache = await caches.open(CACHE_NAME);
 
+      // Cache-first strategy
       if (cacheStrategy === 'cache-first') {
         const cachedResponse = await cache.match(cacheIdentifier);
         if (cachedResponse) {
           const cachedAt = cachedResponse.headers.get('X-Cached-At');
           if (cachedAt && Date.now() - parseInt(cachedAt) < cacheExpiration) {
+           
             return cachedResponse;
           }
+          console.log('Cache expired or no cachedAt header for:', cacheIdentifier);
+        } else {
+          console.log('No cache hit for:', cacheIdentifier);
         }
       }
 
+      // Try fetching from the network
       try {
         const networkResponse = await fetch(event.request);
         const clonedResponse = networkResponse.clone();
 
         if (networkResponse.ok) {
-          const headers = new Headers(clonedResponse.headers);
+          const headers = new Headers(clonedResponse.headers);		
           headers.append('X-Cached-At', Date.now().toString());
           headers.append('X-Cache-Identifier', cacheIdentifier);
+          
           const cachedResponse = new Response(await clonedResponse.blob(), {
             status: clonedResponse.status,
             statusText: clonedResponse.statusText,
@@ -49,12 +57,15 @@ self.addEventListener('fetch', (event) => {
           });
 
           event.waitUntil(cache.put(cacheIdentifier, cachedResponse));
+          
         }
 
         return networkResponse;
       } catch (error) {
+        console.log('Network error occurred, falling back to cache:', error);
         const cachedResponse = await cache.match(cacheIdentifier);
         if (cachedResponse) {
+          console.log('Fallback to cached response for:', cacheIdentifier);
           return cachedResponse;
         }
         throw error;
@@ -230,4 +241,15 @@ async function resumeUpload(uploadId, uploadUrl, startByte) {
 
   // Continue with progress tracking and completion as in uploadWithProgress
   // This part would need to be implemented similarly to uploadWithProgress
+}
+
+// Function to generate a simple hash from a string
+function simpleHash(str) {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash; // Convert to 32-bit integer
+  }
+  return hash.toString(36); // Convert to base 36 for shorter string
 }

@@ -16,6 +16,9 @@ export class AnimationController {
     // Get new components
     console.log('Getting new components');
     const newComponentsArray = await newComponentsCallback();
+	   
+	// Wait for components to be ready
+	await this.waitForComponentsReady(newComponentsArray);
 
     // Hide new components initially to avoid flickering
     this.hideNewComponents(newComponentsArray);
@@ -39,6 +42,35 @@ export class AnimationController {
     // Clean up after animation
     console.log('Cleaning up after animation');
     this.cleanupAfterAnimation(newComponentsArray);
+  }
+
+ async waitForComponentsReady(componentsArray) {
+    console.log('Checking components for readiness:',componentsArray);
+    const readyPromises = componentsArray.map(component => {
+      return new Promise(resolve => {
+        console.log(`Checking component: ${component.tagName}`);
+        console.log(`Has data-wait-for-ready: ${component.hasAttribute('data-wait-for-ready')}`);
+        if (component.hasAttribute('data-wait-for-ready')) {
+          console.log(`Animation waiting for component: ${component.tagName}`);
+          const readyHandler = () => {
+            console.log(`Component ready: ${component.tagName}`);
+            component.removeEventListener('component-ready', readyHandler);
+            resolve();
+          };
+          component.addEventListener('component-ready', readyHandler);
+          // Add a timeout in case the event is never fired
+          setTimeout(() => {
+            console.log(`Timeout reached for component: ${component.tagName}`);
+            resolve();
+          }, 5000); // 5 seconds timeout
+        } else {
+          console.log(`Component doesn't need to wait: ${component.tagName}`);
+          resolve();
+        }
+      });
+    });
+    await Promise.all(readyPromises);
+    console.log('All components are ready');
   }
 
   hideNewComponents(componentsArray) {

@@ -77,6 +77,8 @@ export class Router {
       Object.entries(params).forEach(([key, value]) => {
         component.setAttribute(key, value);
       });
+ 
+	  
       // If the component has an update method, call it
       if (typeof component.update === 'function') {
         await component.update(params);
@@ -114,10 +116,10 @@ export class Router {
 async renderComponent(componentName, params) {
   console.log(`Rendering component: ${componentName}`);
   const oldComponents = Array.from(this.contentContainer.children);
-  
+
   const newComponentsCallback = async () => {
     let component = this.componentCache.get(componentName);
-    
+
     if (!component) {
       if (!customElements.get(componentName)) {
         await this.loadComponent(componentName);
@@ -125,12 +127,24 @@ async renderComponent(componentName, params) {
       component = document.createElement(componentName);
       this.componentCache.set(componentName, component);
     }
-    
+
     // Update component with new params
     Object.entries(params).forEach(([key, value]) => {
       component.setAttribute(key, value);
     });
-    
+
+    // Check if this component needs to wait for data
+    const route = this.routes.find(r => r.component === componentName);
+    if (route && route.waitForData) {
+      console.log('Route:: wait for ready add:', route);
+      component.setAttribute('data-wait-for-ready', '');
+
+      const domElement = this.contentContainer.querySelector(componentName);
+      if (domElement) {
+        domElement.setAttribute('data-wait-for-ready', '');
+      }
+    }
+
     // If the component has an update method, call it
     if (typeof component.update === 'function') {
       await component.update(params);
@@ -143,24 +157,30 @@ async renderComponent(componentName, params) {
       component = newComponent;
       this.componentCache.set(componentName, component);
     }
-    
-    // Clear the container and append the component
-    this.contentContainer.innerHTML = '';
+
+    // Wait for the animation to be ready before clearing the container
+    await new Promise(resolve => requestAnimationFrame(resolve));
+
+    // Clear the container and append the new component
+    this.contentContainer.innerHTML = '';  // Clear only after ensuring animation readiness
     this.contentContainer.appendChild(component);
-    
+
     // Force a render of the component
     await new Promise(resolve => requestAnimationFrame(resolve));
+
     return [component];
   };
-  
+
+  // Animate the route transition with the old and new components
   await this.animationController.animateRouteTransition(oldComponents, newComponentsCallback);
 }
+
   async loadComponent(componentName) {
     if (this.componentLoader) {
       return this.componentLoader.loadComponent(componentName);
     } else {
       return new Promise((resolve, reject) => {
-        import(/* webpackIgnore: true */ `/components/${componentName}/${componentName}.js`)
+        import(/* webpackIgnore: true */ `${window.FlowweJSConfig.componentFetchUrl}/${componentName}/${componentName}.js`)
           .then(() => {
             console.log(`Component ${componentName} loaded successfully`);
             resolve();
