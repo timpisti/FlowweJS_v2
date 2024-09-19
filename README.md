@@ -115,7 +115,7 @@ try {
       apiUrl: '',  //YOUR apiURL
       routes: [
 		{ path: '/', component: 'article-list-page' },
-		{ path: '/articles/:id', component: 'article-page' },
+		{ path: '/articles/:id', component: 'article-page', waitForData: true}, //for dynamic contents
 		{ path: '/authors', component: 'authors-list-page' },
 		{ path: '/author/:id', component: 'author-page' },
     { path: '/404', component: 'notfound-page' }
@@ -171,6 +171,8 @@ class HomePage extends HTMLElement {
             <h1>Welcome to FlowweJS</h1>
             <p>This is the home page.</p>
         `;
+		
+		this.dispatchEvent(new CustomEvent('component-ready')); //put this when all the data ready to display
     }
 }
 
