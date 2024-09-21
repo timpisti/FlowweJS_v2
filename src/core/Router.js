@@ -3,21 +3,52 @@ import { AnimationController } from './AnimationController.js';
 export class Router {
   constructor(config) {
     this.config = config;
-    this.routes = config.routes || window.FlowweJSConfig.routes;
+    this.routes = this.prepareRoutes(config.routes || window.FlowweJSConfig.routes);
     this.contentContainer = document.getElementById('app');
     this.currentRoute = null;
     this.currentParams = null;
     this.componentCache = new Map();
     this.componentLoader = config.componentLoader;
+    this.animationController = new AnimationController();
+    this.debounceDelay = 50; // milliseconds
+    this.debounceTimer = null;
   }
+
+  prepareRoutes(routes) {
+    return routes.map(route => ({
+      ...route,
+      regex: this.pathToRegex(route.path),
+      params: this.getRouteParams(route.path)
+    })).sort((a, b) => b.path.length - a.path.length); // Sort by path specificity
+  }
+
+  pathToRegex(path) {
+    return new RegExp('^' + path.replace(/\//g, '\\/').replace(/:\w+/g, '([^\\/]+)') + '$');
+  }
+
+  getRouteParams(path) {
+    return path.match(/:(\w+)/g)?.map(param => param.substring(1)) || [];
+  }
+
+  _debounce(func, delay) {
+    return (...args) => {
+      clearTimeout(this.debounceTimer);
+      this.debounceTimer = setTimeout(() => func.apply(this, args), delay);
+    };
+  }
+
+  _debouncedHandleRoute = this._debounce(() => {
+    this.handleRoute().catch(error => {
+      console.error('Error in route handling:', error);
+      this.renderNotFound();
+    });
+  }, this.debounceDelay);
 
   async init() {
     console.log('Initializing Router');
-    this.animationController = new AnimationController();
-    
-    window.addEventListener('popstate', () => this.handleRoute());
+    window.addEventListener('popstate', () => this._debouncedHandleRoute());
     this.setupLinkInterception();
-    this.handleRoute();
+    await this._debouncedHandleRoute(); // Initial route handling
   }
 
   setupLinkInterception() {
@@ -27,25 +58,27 @@ export class Router {
 
   handleClick(e) {
     const anchor = e.composedPath().find(el => el.tagName === 'A');
-    if (anchor) {
-      const href = anchor.getAttribute('href');
-      if (href?.startsWith('/')) {
-        console.log(`Intercepted click on link: ${href}`);
-        e.preventDefault();
-        this.navigateTo(href);
-      }
+    if (anchor && anchor.getAttribute('href')?.startsWith('/')) {
+      console.log(`Intercepted click on link: ${anchor.getAttribute('href')}`);
+      e.preventDefault();
+      this.navigateTo(anchor.getAttribute('href'));
     }
   }
 
-  async navigateTo(url) {
+  async navigateTo(url, immediate = false) {
     console.log(`Navigating to: ${url}`);
     history.pushState(null, null, url);
-    await this.handleRoute();
+    if (immediate) {
+      await this.handleRoute();
+    } else {
+      await this._debouncedHandleRoute();
+    }
   }
 
   async handleRoute() {
     const path = window.location.pathname;
     console.log(`Handling route: ${path}`);
+
     const { route, params } = this.findMatchingRoute(path);
 
     if (route) {
@@ -73,13 +106,10 @@ export class Router {
   async updateComponent(params) {
     const component = this.componentCache.get(this.currentRoute.component);
     if (component) {
-      // Update component with new params
       Object.entries(params).forEach(([key, value]) => {
         component.setAttribute(key, value);
       });
- 
-	  
-      // If the component has an update method, call it
+      
       if (typeof component.update === 'function') {
         await component.update(params);
       }
@@ -87,109 +117,80 @@ export class Router {
   }
 
   findMatchingRoute(path) {
-    const urlPathSegments = path.split('/').filter(Boolean);
-
     for (const route of this.routes) {
-      const routePathSegments = route.path.split('/').filter(Boolean);
-
-      if (routePathSegments.length !== urlPathSegments.length) {
-        continue;
-      }
-
-      const params = {};
-      const match = routePathSegments.every((routeSegment, i) => {
-        if (routeSegment.startsWith(':')) {
-          params[routeSegment.slice(1)] = urlPathSegments[i];
-          return true;
-        }
-        return routeSegment === urlPathSegments[i];
-      });
-
+      const match = path.match(route.regex);
       if (match) {
+        const params = {};
+        route.params.forEach((param, index) => {
+          params[param] = match[index + 1];
+        });
         return { route, params };
       }
     }
-
     return { route: null, params: {} };
   }
 
-async renderComponent(componentName, params) {
-  console.log(`Rendering component: ${componentName}`);
-  const oldComponents = Array.from(this.contentContainer.children);
+  async renderComponent(componentName, params) {
+    console.log(`Rendering component: ${componentName}`);
+    const oldComponents = Array.from(this.contentContainer.children);
 
-  const newComponentsCallback = async () => {
-    let component = this.componentCache.get(componentName);
+    const newComponentsCallback = async () => {
+      let component = this.componentCache.get(componentName);
 
-    if (!component) {
-      if (!customElements.get(componentName)) {
-        await this.loadComponent(componentName);
+      if (!component) {
+        if (!customElements.get(componentName)) {
+          await this.loadComponent(componentName);
+        }
+        component = document.createElement(componentName);
+        this.componentCache.set(componentName, component);
       }
-      component = document.createElement(componentName);
-      this.componentCache.set(componentName, component);
-    }
 
-    // Update component with new params
-    Object.entries(params).forEach(([key, value]) => {
-      component.setAttribute(key, value);
-    });
-
-    // Check if this component needs to wait for data
-    const route = this.routes.find(r => r.component === componentName);
-    if (route && route.waitForData) {
-      console.log('Route:: wait for ready add:', route);
-      component.setAttribute('data-wait-for-ready', '');
-
-      const domElement = this.contentContainer.querySelector(componentName);
-      if (domElement) {
-        domElement.setAttribute('data-wait-for-ready', '');
-      }
-    }
-
-    // If the component has an update method, call it
-    if (typeof component.update === 'function') {
-      await component.update(params);
-    } else {
-      // If there's no update method, recreate the component
-      const newComponent = document.createElement(componentName);
       Object.entries(params).forEach(([key, value]) => {
-        newComponent.setAttribute(key, value);
+        component.setAttribute(key, value);
       });
-      component = newComponent;
-      this.componentCache.set(componentName, component);
-    }
 
-    // Wait for the animation to be ready before clearing the container
-    await new Promise(resolve => requestAnimationFrame(resolve));
+      const route = this.routes.find(r => r.component === componentName);
+      if (route && route.waitForData) {
+        console.log('Route:: wait for ready add:', route);
+        component.setAttribute('data-wait-for-ready', '');
+      }
 
-    // Clear the container and append the new component
-    this.contentContainer.innerHTML = '';  // Clear only after ensuring animation readiness
-    this.contentContainer.appendChild(component);
+      if (typeof component.update === 'function') {
+        await component.update(params);
+      } else {
+        const newComponent = document.createElement(componentName);
+        Object.entries(params).forEach(([key, value]) => {
+          newComponent.setAttribute(key, value);
+        });
+        component = newComponent;
+        this.componentCache.set(componentName, component);
+      }
 
-    // Force a render of the component
-    await new Promise(resolve => requestAnimationFrame(resolve));
+      await new Promise(resolve => requestAnimationFrame(resolve));
 
-    return [component];
-  };
+      this.contentContainer.innerHTML = '';
+      this.contentContainer.appendChild(component);
 
-  // Animate the route transition with the old and new components
-  await this.animationController.animateRouteTransition(oldComponents, newComponentsCallback);
-}
+      await new Promise(resolve => requestAnimationFrame(resolve));
+
+      return [component];
+    };
+
+    await this.animationController.animateRouteTransition(oldComponents, newComponentsCallback);
+  }
 
   async loadComponent(componentName) {
-    if (this.componentLoader) {
-      return this.componentLoader.loadComponent(componentName);
-    } else {
-      return new Promise((resolve, reject) => {
-        import(/* webpackIgnore: true */ `${window.FlowweJSConfig.componentFetchUrl}/${componentName}/${componentName}.js`)
-          .then(() => {
-            console.log(`Component ${componentName} loaded successfully`);
-            resolve();
-          })
-          .catch(error => {
-            console.error(`Failed to load component ${componentName}:`, error);
-            reject(error);
-          });
-      });
+    try {
+      if (this.componentLoader) {
+        return await this.componentLoader.loadComponent(componentName);
+      } else {
+        const module = await import(/* webpackIgnore: true */ `${window.FlowweJSConfig.componentFetchUrl}/${componentName}/${componentName}.js`);
+        console.log(`Component ${componentName} loaded successfully`);
+        return module;
+      }
+    } catch (error) {
+      console.error(`Failed to load component ${componentName}:`, error);
+      throw error;
     }
   }
 
@@ -198,11 +199,19 @@ async renderComponent(componentName, params) {
     const oldComponents = Array.from(this.contentContainer.children);
     
     const newComponentsCallback = async () => {
-      const notFoundContent = document.createElement('div');
-      notFoundContent.innerHTML = '<h1>404 - Page Not Found</h1>';
+      let notFoundComponent;
+      const notFoundRoute = this.routes.find(route => route.path === '/404');
+      
+      if (notFoundRoute) {
+        notFoundComponent = await this.loadComponent(notFoundRoute.component);
+      } else {
+        notFoundComponent = document.createElement('div');
+        notFoundComponent.innerHTML = '<h1>404 - Page Not Found</h1>';
+      }
+      
       this.contentContainer.innerHTML = '';
-      this.contentContainer.appendChild(notFoundContent);
-      return [notFoundContent];
+      this.contentContainer.appendChild(notFoundComponent);
+      return [notFoundComponent];
     };
 
     await this.animationController.animateRouteTransition(oldComponents, newComponentsCallback);

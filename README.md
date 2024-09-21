@@ -116,6 +116,7 @@ try {
       routes: [
 		{ path: '/', component: 'article-list-page' },
 		{ path: '/articles/:id', component: 'article-page', waitForData: true}, //for dynamic contents
+		{ path: '/:id', component: 'article-page', waitForData: true},  //Optionally for better SEO		
 		{ path: '/authors', component: 'authors-list-page' },
 		{ path: '/author/:id', component: 'author-page' },
     { path: '/404', component: 'notfound-page' }
@@ -147,6 +148,7 @@ window.FlowweJSConfig = {
     componentFetchUrl: '/components',
     routes: [
         { path: '/', component: 'home-page' },
+		{ path: '/:id', component: 'content-page' }, //better SEO for main content without controller name in the route
         { path: '/about', component: 'about-page' },
         { path: '/users/:id', component: 'user-profile' }
     ],
