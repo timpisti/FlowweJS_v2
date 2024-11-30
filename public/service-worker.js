@@ -1,5 +1,83 @@
 const CACHE_NAME = 'flowwejs-cache-v1';
+const VERSION_KEY = 'flowwejs-version';
 let activeUploads = new Map();
+let currentVersion = null;
+
+// Version helper functions
+function getWeekNumber(date) {
+  const firstDayOfYear = new Date(date.getFullYear(), 0, 1);
+  const pastDaysOfYear = (date - firstDayOfYear) / 86400000;
+  return Math.ceil((pastDaysOfYear + firstDayOfYear.getDay() + 1) / 7);
+}
+
+function formatVersion(version) {
+  const weekNumber = getWeekNumber(new Date()).toString().padStart(2, '0');
+  if (!version) {
+    return `1.0.0.${weekNumber}`;
+  }
+  const versionParts = version.split('.');
+  if (versionParts.length >= 4) {
+    versionParts[3] = weekNumber;
+    return versionParts.join('.');
+  }
+  return `${version}.${weekNumber}`;
+}
+
+// Initialize version from storage
+self.addEventListener('activate', async (event) => {
+  console.log('Service Worker activated');
+  currentVersion = await getStoredVersion();
+  if (currentVersion) {
+    currentVersion = formatVersion(currentVersion);
+    console.log('Current version with week number:', currentVersion);
+  }
+});
+
+async function getStoredVersion() {
+  const clients = await self.clients.matchAll();
+  if (clients.length > 0) {
+    const client = clients[0];
+    return new Promise((resolve) => {
+      const channel = new MessageChannel();
+      channel.port1.onmessage = (event) => {
+        const formattedVersion = formatVersion(event.data);
+        resolve(formattedVersion);
+      };
+      client.postMessage({ type: 'GET_VERSION' }, [channel.port2]);
+    });
+  }
+  return formatVersion(null);
+}
+
+async function handleVersionCheck(newVersion) {
+  const formattedNewVersion = formatVersion(newVersion);
+
+  if (currentVersion === null) {
+    currentVersion = formattedNewVersion;
+    console.log('Initial version set to:', currentVersion);
+    return false;
+  }
+
+  if (formattedNewVersion !== currentVersion) {
+    console.log(`Version changed from ${currentVersion} to ${formattedNewVersion}`);
+    currentVersion = formattedNewVersion;
+    
+    await caches.delete(CACHE_NAME);
+    
+    self.clients.matchAll().then(clients => {
+      clients.forEach(client => {
+        client.postMessage({ 
+          type: 'CACHE_INVALIDATED', 
+          oldVersion: currentVersion, 
+          newVersion: formattedNewVersion 
+        });
+      });
+    });
+    
+    return true;
+  }
+  return false;
+}
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -30,13 +108,14 @@ self.addEventListener('fetch', (event) => {
         const cachedResponse = await cache.match(cacheIdentifier);
         if (cachedResponse) {
           const cachedAt = cachedResponse.headers.get('X-Cached-At');
-          if (cachedAt && Date.now() - parseInt(cachedAt) < cacheExpiration) {
-           
+          const cachedVersion = cachedResponse.headers.get('X-Cache-Version');
+          
+          if (cachedAt && 
+              Date.now() - parseInt(cachedAt) < cacheExpiration &&
+              cachedVersion === currentVersion) {
             return cachedResponse;
           }
-          console.log('Cache expired or no cachedAt header for:', cacheIdentifier);
-        } else {
-          console.log('No cache hit for:', cacheIdentifier);
+          console.log('Cache expired or version mismatch for:', cacheIdentifier);
         }
       }
 
@@ -49,6 +128,7 @@ self.addEventListener('fetch', (event) => {
           const headers = new Headers(clonedResponse.headers);		
           headers.append('X-Cached-At', Date.now().toString());
           headers.append('X-Cache-Identifier', cacheIdentifier);
+          headers.append('X-Cache-Version', currentVersion);
           
           const cachedResponse = new Response(await clonedResponse.blob(), {
             status: clonedResponse.status,
@@ -57,7 +137,6 @@ self.addEventListener('fetch', (event) => {
           });
 
           event.waitUntil(cache.put(cacheIdentifier, cachedResponse));
-          
         }
 
         return networkResponse;
@@ -75,7 +154,9 @@ self.addEventListener('fetch', (event) => {
 });
 
 self.addEventListener('message', (event) => {
-  if (event.data.type === 'CLEAR_CACHE') {
+  if (event.data.type === 'SET_VERSION') {
+    event.waitUntil(handleVersionCheck(event.data.version));
+  } else if (event.data.type === 'CLEAR_CACHE') {
     event.waitUntil(
       caches.open(CACHE_NAME).then((cache) => {
         return cache.delete(event.data.cacheIdentifier);
@@ -151,7 +232,7 @@ async function uploadWithProgress(upload) {
     console.log('File size:', file.size);
 
     let receivedSize = 0;
-    let chunks = [];  // Initialize the chunks array
+    let chunks = [];
 
     while (true) {
       const { done, value } = await reader.read();
@@ -160,7 +241,7 @@ async function uploadWithProgress(upload) {
         break;
       }
 
-      chunks.push(value);  // Collect chunks of data
+      chunks.push(value);
       receivedSize += value.length;
       console.log('Received size:', receivedSize);
 
@@ -171,10 +252,8 @@ async function uploadWithProgress(upload) {
       }
     }
 
-    // Ensure we send a 100% progress update at the end
     sendMessage({ type: 'UPLOAD_PROGRESS', uploadId, progress: 100 });
 
-    // Convert the Uint8Array chunks directly into a string and parse as JSON
     const responseData = new TextDecoder("utf-8").decode(
       new Uint8Array(chunks.reduce((acc, chunk) => [...acc, ...chunk], []))
     );
@@ -212,38 +291,7 @@ function sendMessage(message) {
   });
 }
 
-// Helper function to handle upload resumption (not fully implemented)
-async function resumeUpload(uploadId, uploadUrl, startByte) {
-  const upload = activeUploads.get(uploadId);
-  if (!upload) {
-    throw new Error('Upload not found');
-  }
-
-  const { file, controller } = upload;
-  const blob = file.slice(startByte);
-
-  const formData = new FormData();
-  formData.append('file', blob, file.name);
-
-  const response = await fetch(uploadUrl, {
-    method: 'PUT',
-    headers: {
-      'Content-Range': `bytes ${startByte}-${file.size - 1}/${file.size}`,
-    },
-    body: formData,
-    signal: controller.signal,
-    credentials: 'include'
-  });
-
-  if (!response.ok) {
-    throw new Error(`HTTP error! status: ${response.status}`);
-  }
-
-  // Continue with progress tracking and completion as in uploadWithProgress
-  // This part would need to be implemented similarly to uploadWithProgress
-}
-
-// Function to generate a simple hash from a string
+// Helper function to generate a simple hash from a string
 function simpleHash(str) {
   let hash = 0;
   for (let i = 0; i < str.length; i++) {

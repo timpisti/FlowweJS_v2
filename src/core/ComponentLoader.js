@@ -5,11 +5,13 @@ export class ComponentLoader {
     this.loadedComponents = new Set();
     this.loadingPromises = new Map();
     this.loadingTimers = new Map();
+    this.externalSourceMap = new Map();
   }
 
   async loadComponent(componentName, targetElement = null) {
     PerformanceMonitor.markStart(`load-${componentName}`);
     console.log(`Attempting to load component: ${componentName}`);
+    
     if (this.loadedComponents.has(componentName)) {
       console.log(`Component ${componentName} already loaded, skipping`);
       PerformanceMonitor.markEnd(`load-${componentName}`);
@@ -22,19 +24,74 @@ export class ComponentLoader {
       return this.loadingPromises.get(componentName);
     }
 
-    const { componentFetchUrl } = window.FlowweJSConfig;
-    const componentUrl = new URL(`${componentFetchUrl}/${componentName}/${componentName}.js`, window.location.origin).href;
+    // Check if component has a custom fetch URL
+    const element = document.querySelector(componentName);
+    const fetchURL = element?.getAttribute('fetchURL');
+    
+    if (fetchURL) {
+      // Validate and sanitize the URL
+      try {
+        const url = new URL(fetchURL);
+        if (!this.isAllowedDomain(url.hostname)) {
+          throw new Error(`Domain ${url.hostname} is not in the allowed list`);
+        }
+        this.externalSourceMap.set(componentName, url.href);
+      } catch (error) {
+        console.error(`Invalid fetchURL for component ${componentName}:`, error);
+        throw error;
+      }
+    }
 
     this.setupLoadingIndicator(componentName, targetElement);
 
     const loadPromise = (async () => {
       try {
+        // Use external URL if specified, otherwise fallback to default
+        const componentUrl = this.externalSourceMap.get(componentName) || 
+          new URL(`${window.FlowweJSConfig.componentFetchUrl}/${componentName}/${componentName}.js`, window.location.origin).href;
+
         console.log(`Importing component from URL: ${componentUrl}`);
-        const module = await import(/* webpackIgnore: true */ componentUrl);
-        this.loadedComponents.add(componentName);
-        console.log(`Component ${componentName} loaded successfully`);
-        await this.checkForNestedComponents(componentName);
-        return module;
+        
+        // Add security headers for the fetch
+        const headers = new Headers({
+          'X-Requested-With': 'XMLHttpRequest',
+          'Accept': 'application/javascript'
+        });
+
+        // First fetch the component code to validate it
+        const response = await fetch(componentUrl, { headers });
+        if (!response.ok) {
+          throw new Error(`Failed to fetch component: ${response.statusText}`);
+        }
+
+        // Validate the response content type
+        const contentType = response.headers.get('content-type');
+        if (!contentType?.includes('javascript')) {
+          throw new Error('Invalid content type for component');
+        }
+
+        // Get the code as text first for validation
+        const code = await response.text();
+        
+        // Basic validation of the component code
+        if (!this.validateComponentCode(code)) {
+          throw new Error('Component code validation failed');
+        }
+
+        // Create a blob URL for the validated code
+        const blob = new Blob([code], { type: 'application/javascript' });
+        const blobUrl = URL.createObjectURL(blob);
+
+        try {
+          const module = await import(/* webpackIgnore: true */ blobUrl);
+          this.loadedComponents.add(componentName);
+          console.log(`Component ${componentName} loaded successfully`);
+          await this.checkForNestedComponents(componentName);
+          return module;
+        } finally {
+          // Clean up the blob URL
+          URL.revokeObjectURL(blobUrl);
+        }
       } catch (error) {
         console.error(`Failed to load component ${componentName}:`, error);
         throw error;
@@ -48,6 +105,24 @@ export class ComponentLoader {
 
     this.loadingPromises.set(componentName, loadPromise);
     return loadPromise;
+  }
+
+  validateComponentCode(code) {
+    // Basic security validation
+    const dangerousPatterns = [
+      /eval\s*\(/,
+      /document\.write/,
+      /<script\b[^>]*>([\s\S]*?)<\/script>/,
+      /Function\s*\(/
+    ];
+
+    return !dangerousPatterns.some(pattern => pattern.test(code));
+  }
+
+  isAllowedDomain(hostname) {
+    // Get allowed domains from configuration or use defaults
+    const allowedDomains = window.FlowweJSConfig.allowedExternalDomains || [];
+    return allowedDomains.includes(hostname);
   }
 
   setupLoadingIndicator(componentName, targetElement) {

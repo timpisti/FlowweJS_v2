@@ -26,7 +26,7 @@ FlowweJS is a lightweight, modular JavaScript framework designed for building ef
 - **Performance Monitoring**: Built-in tools to measure and optimize your application's performance.
 - **Error Boundary**: Catch and handle errors gracefully to improve user experience, and manage in enterprise environment.
 - **Animation Support**: Easily add smooth transitions between route changes.
-- **Service Worker Integration**: Improve load times with intelligent caching.
+- **Service Worker Integration**: Improve load times with intelligent caching & versioning.
 - **Loading indicator for slow load**: To avoid early application leaveing for limited network users.
 - **Component preloading**: To smooth user experinece.
 - **Intersection Observer**: To minimize image network traffic
@@ -113,6 +113,8 @@ try {
       baseUrl: '/',
       componentFetchUrl: '/components',
       apiUrl: '',  //YOUR apiURL
+	  allowedExternalDomains: ['yourdomain.com','trustedotherdomain.com'], // For external component loading security
+	  version: '2.3.0' // your version, if changed, the service worker cache will automatically flush.
       routes: [
 		{ path: '/', component: 'article-list-page' },
 		{ path: '/articles/:id', component: 'article-page', waitForData: true}, //for dynamic contents
@@ -209,7 +211,7 @@ You can use in <div>,<img> and text content <p>,<h1>,<h2>, etc
 ```
 ### Service Worker
 
-FlowweJS includes a service worker for performance optimization, component (and image) caching. To use it, register the service worker in your main JavaScript file:
+FlowweJS includes a service worker for performance optimization, component (and image) caching. The service worker have an automatic version change detection - the cache will flush on every version change and weekly. To use it, register the service worker in your main JavaScript file:
 
 ```javascript
 if ('serviceWorker' in navigator) {
