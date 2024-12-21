@@ -111,10 +111,10 @@ try {
     };  
     window.FlowweJSConfig = {
       baseUrl: '/',
-      componentFetchUrl: '/components',
+      componentFetchUrl: 'https://yourdomain.com/components', //to use local components give the absolute url
       apiUrl: '',  //YOUR apiURL
 	  allowedExternalDomains: ['yourdomain.com','trustedotherdomain.com'], // For external component loading security
-	  version: '2.3.0' // your version, if changed, the service worker cache will automatically flush.
+	  version: '2.3.0', // your version, if changed, the service worker cache will automatically flush.
       routes: [
 		{ path: '/', component: 'article-list-page' },
 		{ path: '/articles/:id', component: 'article-page', waitForData: true}, //for dynamic contents
