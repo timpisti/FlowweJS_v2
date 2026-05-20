@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <base href="./" />
   <script src="https://cdn.tailwindcss.com"></script>  
   <title>Flowwe JS App</title>
   <script>
@@ -10,8 +11,8 @@
       darkMode: 'class'
     };  
     window.FlowweJSConfig = {
-      baseUrl: '/',
-      componentFetchUrl: '/components',
+      baseUrl: './',
+      componentFetchUrl: './components',
       apiUrl: '',  //YOUR apiURL
       routes: [
 		{ path: '/', component: 'article-list-page' },
@@ -43,6 +44,6 @@
 	</main>
 </div>  
   <flowwejs-footer></flowwejs-footer>
-  <script src="/components/templateService.js"></script> 
+  <script src="./components/templateService.js"></script> 
 </body>
 </html>

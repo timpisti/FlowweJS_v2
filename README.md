@@ -103,15 +103,16 @@ try {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <base href="./" />
     <title>FlowweJS App</title>
   <script>
     //For this example
     tailwind.config = {
       darkMode: 'class'
-    };  
+    };
     window.FlowweJSConfig = {
-      baseUrl: '/',
-      componentFetchUrl: 'https://yourdomain.com/components', //to use local components give the absolute url
+      baseUrl: './',
+      componentFetchUrl: 'https://yourdomain.com/components', //to use local components use './components'
       apiUrl: '',  //YOUR apiURL
 	  allowedExternalDomains: ['yourdomain.com','trustedotherdomain.com'], // For external component loading security
 	  version: '2.3.0', // your version, if changed, the service worker cache will automatically flush.
@@ -218,6 +219,56 @@ if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('/service-worker.js');
 }
 ```
+
+## v2.5.0 — Upgrade Notes
+
+### Breaking Changes
+
+- **Template expressions**: The template engine no longer uses `new Function()` for evaluating expressions. Templates that relied on arbitrary JavaScript inside `{{expression}}` or `@if(condition)` must be simplified. Supported syntax:
+  - Property paths: `{{item.title}}`, `{{data.nested.value}}`
+  - Comparisons: `@if(count > 0)`, `@if(status === 'active')`
+  - Logical operators: `&&`, `||`, `!`
+  - Literals: strings (`'hello'`), numbers, `true`, `false`, `null`
+  - Arithmetic or method calls (e.g., `{{price * qty}}`, `{{items.filter(...)}}`) are **no longer supported**.
+- **Service worker cache keys** changed from hash-based to full URL. Existing browser caches will not match after upgrade — users should clear site data or bump the `version` in `FlowweJSConfig` to trigger automatic cache invalidation.
+- **Relative paths**: `componentFetchUrl` default changed from `/components` to `./components`. A `<base href="./">` tag is now added to `index.html`. This enables deployment under any URL path (not just domain root), but if your components rely on absolute `/` paths, update them to `./` or set an explicit absolute `componentFetchUrl`.
+
+### Security Fixes
+
+- **Removed `new Function()` code injection** in template engine — template expressions are now evaluated through a safe property resolver and condition parser.
+- **HTML escaping**: Added global `window.escapeHtml()` utility. All built-in components now escape user-facing text to prevent XSS when rendering dynamic data via `innerHTML`.
+- **Expanded component code validation**: `ComponentLoader` now additionally blocks `setTimeout`/`setInterval` with string arguments, indirect `eval` (`(0, eval)()`), and dynamic `import()` in loaded component code.
+
+### Bug Fixes
+
+- **Router constructor**: Fixed wiring so `ComponentLoader` security validation (domain whitelist, dangerous pattern checks, blob URL sandboxing) is actually used. Previously, a constructor mismatch caused the Router to bypass `ComponentLoader` entirely and load components via raw dynamic import.
+- **Initial route handling**: `Router.init()` now directly awaits the first route render instead of firing it through a debounce (which returned `undefined`, not a Promise). The `app-init` performance timing now correctly includes initial route rendering.
+- **Route change detection**: Fixed three-way branch logic — same route + same params is now a no-op (previously triggered an unnecessary `updateComponent` call). Same route + different params triggers an in-place update. Different route triggers a full render.
+- **Position animation completion**: `AnimationController.animateElement()` now returns a Promise that resolves after the CSS transition completes. Previously it returned immediately, causing `Promise.all` in `animateComponents` to resolve before position animations finished.
+- **Service worker `CACHE_INVALIDATED` message**: The `oldVersion` field now correctly contains the previous version. Previously, `currentVersion` was overwritten before sending the message, so `oldVersion` and `newVersion` were identical.
+- **Service worker cache strategy**: The `httpCacheStrategy` config option (`'cache-first'` or `'network-first'`) is now sent to the service worker via `SET_CACHE_STRATEGY` message. Previously, the service worker read strategy from a request header that was never set, defaulting to `'network-first'` regardless of config.
+- **Footer `loadConfig` ReferenceError**: `fetchURL` was a local variable in `connectedCallback` but referenced in `loadConfig`. Now stored as `this.fetchURL` instance property.
+- **Author page hardcoded animation IDs**: `data-animate` values were hardcoded to `author-1-image` / `author-1-name` regardless of which author was displayed. Now uses `author-${author.id}-image`.
+- **404 route rendering**: `renderNotFound` now properly creates a DOM element via `document.createElement()` instead of trying to append a module object.
+
+### Improvements
+
+- **Sub-path deployment support**: Router auto-detects the base path from the URL and strips it before matching routes. `navigateTo()` prepends the base path when pushing history state. The framework now works correctly when deployed under any directory (e.g., `/app/dist/`), not just domain root.
+- **Component lifecycle cleanup**: `FlowwejsFooter` now implements `disconnectedCallback` to unsubscribe from RxJS, preventing memory leaks during SPA navigation.
+- **Duplicate image event handlers fixed**: `AnimationController.waitForImagesToLoad` previously set both `img.onload` and `addEventListener('load', ...)`, calling `resolve()` twice. Now uses a single listener with `{ once: true }`.
+- **Dead code removed**: duplicate variable declarations in footer, unused `getTemporaryAuthor()` method in author-page, orphaned `</common-image>` closing tags, duplicate `activate` event listener in service worker, unused `simpleHash` function.
+- **`notfound-page` component**: Added the missing 404 page component that was referenced in the default route config but never existed.
+- **Rapid navigation race condition fix**: New navigations now cancel any in-flight route transition. An `AbortController` signal is checked at multiple async boundaries (component load, animation) so stale transitions don't overwrite the new route's content.
+- **AnimationController `cancel()` no longer permanent**: `isCancelled` is reset to `false` at the start of each new transition. Previously, once cancelled, the controller was permanently broken.
+- **Component fetch timeout**: `ComponentLoader` now aborts fetches after 15 seconds (configurable via `FETCH_TIMEOUT_MS`) instead of hanging indefinitely on stalled servers.
+- **Relaxed content-type validation**: Same-origin component fetches skip MIME type checks. Cross-origin fetches now accept `text/plain` in addition to JavaScript MIME types, fixing compatibility with default Apache configurations.
+- **MutationObserver performance**: The observer callback no longer recursively walks the entire subtree for every DOM mutation. Since `subtree: true` already reports deeply-nested additions individually, only directly-added custom elements are processed. Initial DOM scan uses a separate one-time recursive scan.
+- **Conditional debug logging**: All ~60 `console.log` calls in core framework modules are now gated behind `FlowweJSConfig.performanceMonitoring`. Set to `false` in production for zero logging overhead. Errors always log regardless of this setting.
+- **ErrorBoundary visual feedback**: When `FlowweJSConfig.errorDisplaying` is `true`, unhandled errors now show a dismissible red banner at the bottom of the screen (auto-dismisses after 8 seconds) instead of only logging to the console.
+- **Service worker `getStoredVersion` timeout**: The version retrieval from the client now times out after 3 seconds instead of hanging forever if the client doesn't respond (e.g., frozen tab, mid-load page).
+- **Service worker scope fix**: The service worker is now registered with an explicit `scope` derived from `document.baseURI`, ensuring it intercepts fetch requests for all SPA routes even in sub-path deployments.
+- **Upload chunk concatenation O(n) instead of O(n^2)**: Response chunks in `uploadWithProgress` are now concatenated via `new Blob(chunks).text()` instead of spread-reducing into intermediate arrays.
+- **Unused `BehaviorSubject` import removed**: Only `Subject` is imported from RxJS, reducing bundle size.
 
 ## Differences and upgrades from Flowwe-JS v1
 

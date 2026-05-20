@@ -83,30 +83,31 @@ class ArticleListPage extends HTMLElement {
   }
 
 generateArticleList(articles) {
+    const esc = window.escapeHtml || (s => String(s));
     return articles.map((article, index) => `
       <div class="bg-white dark:bg-gray-900 shadow-md rounded-lg overflow-hidden flex flex-col">
         <a href="/articles/${article.id}" data-link class="relative w-full h-48 block">
-          <img class="w-full h-full object-cover" src="${article.image}" id="articleimage${article.id}" alt="${article.title}" data-animate="article-${article.id}-image,fade,300,` + 100*index +`,fade,300">
+          <img class="w-full h-full object-cover" src="${article.image}" id="articleimage${article.id}" alt="${esc(article.title)}" data-animate="article-${article.id}-image,fade,300,` + 100*index +`,fade,300">
         </a>
         <div class="p-4 flex-grow">
           <a href="/articles/${article.id}" data-link class="block mb-2">
-            <h2 id="articletitle${article.id}" class="text-xl text-gray-900 dark:text-gray-50 font-semibold hover:text-blue-600 transition-colors duration-200" 
+            <h2 id="articletitle${article.id}" class="text-xl text-gray-900 dark:text-gray-50 font-semibold hover:text-blue-600 transition-colors duration-200"
 			  data-animate="article-${article.id}-text,fade,300,` + 100*index +`,fade,300">
-              ${article.title}  
+              ${esc(article.title)}
             </h2>
           </a>
           <div class="flex items-center mt-2">
             <a href="/author/${article.author.id}" data-link class="flex items-center hover:text-blue-600 transition-colors duration-200">
               <div class="w-10 h-10 rounded-full overflow-hidden mr-4">
                 <img id="authorimage${article.author.id}" data-animate="author-${article.author.id}-image,scale,300,` + 100*index +`,fade,300"
-                  class="w-full h-full object-cover" 
-                  src="${article.author.avatar}" 
-                  alt="${article.author.name}" 
+                  class="w-full h-full object-cover"
+                  src="${article.author.avatar}"
+                  alt="${esc(article.author.name)}"
                   >
-               
+
               </div>
               <p id="authorname${article.author.id}" data-animate="author-${article.author.id}-name,scale,300,` + 100*index +`,fade,300" >
-                ${article.author.name}
+                ${esc(article.author.name)}
               </p>
             </a>
           </div>

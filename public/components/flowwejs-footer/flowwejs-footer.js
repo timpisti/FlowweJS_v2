@@ -3,6 +3,8 @@ class FlowwejsFooter extends HTMLElement {
         super();
         this.attachShadow({ mode: 'open' });
 		this.filebasename='flowwejs-footer';
+        this.fetchURL = null;
+        this.rxjsSubscription = null;
         this.data = {
             expression: 'value', // example initial value
             items: ['item1', 'item2', 'item3'], // example items array
@@ -12,19 +14,16 @@ class FlowwejsFooter extends HTMLElement {
     }
 
     async connectedCallback() {
-        const services = JSON.parse(this.getAttribute('flowservices') || '[]');
-        const fetchURL = this.getAttribute('fetchURL') || window.FlowweJSConfig.componentFetchUrl;
-
         try {
         const services = JSON.parse(this.getAttribute('flowservices') || '[]');
-        const fetchURL = this.getAttribute('fetchURL') || window.FlowweJSConfig.componentFetchUrl;
-        const templateResponse = await fetch(`${fetchURL}/${this.filebasename}/${this.filebasename}.html`);
+        this.fetchURL = this.getAttribute('fetchURL') || window.FlowweJSConfig.componentFetchUrl;
+        const templateResponse = await fetch(`${this.fetchURL}/${this.filebasename}/${this.filebasename}.html`);
         const templateText = await templateResponse.text();
-        const styleResponse = await fetch(`${fetchURL}/${this.filebasename}/${this.filebasename}.css`);
+        const styleResponse = await fetch(`${this.fetchURL}/${this.filebasename}/${this.filebasename}.css`);
         const styleText = await styleResponse.text();
 
         const templateService = window.templateService;
-        
+
         this.template = templateText; // Store the template text for updates
         const template = templateService.processTemplate(this.template, this, this.data);
 
@@ -41,15 +40,22 @@ class FlowwejsFooter extends HTMLElement {
             }
 
             this.subscribeToRxJS();
-            
+
                 if (window.translateService) window.translateService.reinit(this.shadowRoot);
         } catch (error) {
             console.error('Error loading template or styles:', error);
         }
     }
 
+    disconnectedCallback() {
+        if (this.rxjsSubscription) {
+            this.rxjsSubscription.unsubscribe();
+            this.rxjsSubscription = null;
+        }
+    }
+
     loadConfig() {
-        const configURL = this.getAttribute('configURL') || `${fetchURL}/${this.filebasename}/${this.filebasename}.config.json`;
+        const configURL = this.getAttribute('configURL') || `${this.fetchURL}/${this.filebasename}/${this.filebasename}.config.json`;
         fetch(configURL)
             .then(response => response.json())
             .then(config => {
@@ -60,7 +66,7 @@ class FlowwejsFooter extends HTMLElement {
 
     subscribeToRxJS() {
         if (window.rxjsService) {
-            window.rxjsService.subscribe(data => {
+            this.rxjsSubscription = window.rxjsService.subscribe(data => {
                 this.updateContent(data);
             });
         }
@@ -83,10 +89,10 @@ class FlowwejsFooter extends HTMLElement {
 
         // Ensure translations are applied after content is rendered
         if (window.translateService) window.translateService.reinit(this.shadowRoot);
-            
-        
+
+
     }
-	
+
 
 }
 

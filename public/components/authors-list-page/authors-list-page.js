@@ -29,19 +29,20 @@ class AuthorsListPage extends HTMLElement {
   }
 
   generateAuthorList(authors) {
+    const esc = window.escapeHtml || (s => String(s));
     return authors.map((author,index) => `
       <div class="text-center">
         <a href="/author/${author.id}" data-link class="block group">
-          <img 
-            class="w-32 h-32 mx-auto mb-4 transition-transform duration-200 transform group-hover:scale-105" 
-            src="${author.avatar}" 
-            alt="${author.name}" 
+          <img
+            class="w-32 h-32 mx-auto mb-4 transition-transform duration-200 transform group-hover:scale-105"
+            src="${author.avatar}"
+            alt="${esc(author.name)}"
             data-animate="author-${author.id}-image,fade,300,`+100 * index +`,fade,300">
-          
-          <p 
-            class="text-xl font-semibold group-hover:text-blue-600 transition-colors duration-200" 
+
+          <p
+            class="text-xl font-semibold group-hover:text-blue-600 transition-colors duration-200"
             data-animate="author-${author.id}-name,slide-up,300,0,fade,300">
-            ${author.name}
+            ${esc(author.name)}
           </p>
         </a>
       </div>

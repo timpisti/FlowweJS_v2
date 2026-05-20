@@ -8,7 +8,7 @@ module.exports = {
   output: {
     filename: 'bundle.js',
     path: path.resolve(__dirname, 'dist'),
-    publicPath: '/'
+    publicPath: './'
   },
   module: {
     rules: [
@@ -31,7 +31,8 @@ module.exports = {
     }),
     new CopyWebpackPlugin({
       patterns: [
-        { from: 'public/components', to: 'components' }
+        { from: 'public/components', to: 'components' },
+        { from: 'public/service-worker.js', to: 'service-worker.js' }
       ]
     })
   ],
