@@ -285,6 +285,56 @@ class TemplateService {
         });
     }
 
+    patchNode(oldNode, newNode) {
+        // Text node — update content only if changed
+        if (oldNode.nodeType === Node.TEXT_NODE && newNode.nodeType === Node.TEXT_NODE) {
+            if (oldNode.textContent !== newNode.textContent) {
+                oldNode.textContent = newNode.textContent;
+            }
+            return;
+        }
+
+        // Element node — patch attributes and recurse into children
+        if (oldNode.nodeType === Node.ELEMENT_NODE && newNode.nodeType === Node.ELEMENT_NODE) {
+            // Update changed/new attributes
+            for (const attr of newNode.attributes) {
+                if (oldNode.getAttribute(attr.name) !== attr.value) {
+                    oldNode.setAttribute(attr.name, attr.value);
+                }
+            }
+            // Remove obsolete attributes
+            for (let i = oldNode.attributes.length - 1; i >= 0; i--) {
+                const attr = oldNode.attributes[i];
+                if (!newNode.hasAttribute(attr.name)) {
+                    oldNode.removeAttribute(attr.name);
+                }
+            }
+        }
+
+        // Recurse into children
+        const oldChildren = Array.from(oldNode.childNodes);
+        const newChildren = Array.from(newNode.childNodes);
+
+        newChildren.forEach((newChild, i) => {
+            const oldChild = oldChildren[i];
+            if (!oldChild) {
+                // New child added
+                oldNode.appendChild(newChild.cloneNode(true));
+            } else if (oldChild.nodeName !== newChild.nodeName) {
+                // Different node type — replace
+                oldNode.replaceChild(newChild.cloneNode(true), oldChild);
+            } else {
+                // Same type — patch recursively
+                this.patchNode(oldChild, newChild);
+            }
+        });
+
+        // Remove trailing old children that no longer exist
+        for (let i = newChildren.length; i < oldChildren.length; i++) {
+            oldChildren[i].remove();
+        }
+    }
+
     rerenderTemplate(component, data) {
         if (!component || !component.template || !component.shadowRoot) {
             console.error('Invalid component or missing template');
@@ -293,11 +343,37 @@ class TemplateService {
 
         const templateFragment = this.processTemplate(component.template, component, data);
 
-        const styleContent = component.shadowRoot.querySelector('style')?.textContent || '';
-        component.shadowRoot.innerHTML = `<style>${styleContent}</style>`;
-        component.shadowRoot.appendChild(templateFragment);
+        // Build a temporary container to hold the new content for diffing
+        const tempContainer = document.createElement('div');
+        tempContainer.appendChild(templateFragment);
 
-        this.attachEventListeners(component.shadowRoot, component);
+        // Find the existing content root (skip the <style> element)
+        const shadowRoot = component.shadowRoot;
+        const styleEl = shadowRoot.querySelector('style');
+        const oldContentNodes = Array.from(shadowRoot.childNodes).filter(n => n !== styleEl);
+
+        // If there's an existing content wrapper, patch it instead of replacing
+        if (oldContentNodes.length > 0 && tempContainer.childNodes.length > 0) {
+            // Wrap old content in a virtual root for diffing
+            const oldWrapper = document.createElement('div');
+            oldContentNodes.forEach(n => oldWrapper.appendChild(n));
+            shadowRoot.appendChild(oldWrapper);
+
+            this.patchNode(oldWrapper, tempContainer);
+
+            // Unwrap: move patched children back to shadow root
+            while (oldWrapper.firstChild) {
+                shadowRoot.insertBefore(oldWrapper.firstChild, oldWrapper);
+            }
+            oldWrapper.remove();
+        } else {
+            // First render or empty — fall back to full replacement
+            const styleContent = styleEl?.textContent || '';
+            shadowRoot.innerHTML = `<style>${styleContent}</style>`;
+            shadowRoot.appendChild(templateFragment);
+        }
+
+        this.attachEventListeners(shadowRoot, component);
     }
 }
 
